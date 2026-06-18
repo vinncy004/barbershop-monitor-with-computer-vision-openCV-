@@ -17,6 +17,75 @@ from pathlib import Path
 os.environ.pop('QT_QPA_PLATFORM_PLUGIN_PATH', None)
 
 # ==========================================
+# 0. UTILITY FUNCTIONS
+# ==========================================
+def convert_to_serializable(obj):
+    """Convert numpy and other non-serializable types to native Python types"""
+    if isinstance(obj, dict):
+        return {k: convert_to_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [convert_to_serializable(item) for item in obj]
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, (np.floating, np.integer)):
+        return obj.item()
+    elif isinstance(obj, (float, int, str, bool, type(None))):
+        return obj
+    else:
+        return str(obj)
+
+# ==========================================
+# 1. SHAVE LOG STORAGE
+# ==========================================
+class ShaveLogStorage:
+    def __init__(self, db_path="shavelog.db"):
+        self.db_path = Path(db_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        self._init_db()
+
+    def _init_db(self):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT,
+                event_type TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                active_duration REAL,
+                total_duration REAL,
+                details TEXT
+            )
+        """)
+        self.conn.commit()
+
+    def store_event(self, session_id, event_type, timestamp, active_duration=None, total_duration=None, details=None):
+        cursor = self.conn.cursor()
+        # Convert all values to serializable types
+        details = convert_to_serializable(details) if details is not None else None
+        cursor.execute(
+            """
+            INSERT INTO events (session_id, event_type, timestamp, active_duration, total_duration, details)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(session_id) if session_id is not None else None,
+                event_type,
+                timestamp.isoformat() if hasattr(timestamp, "isoformat") else str(timestamp),
+                float(active_duration) if active_duration is not None else None,
+                float(total_duration) if total_duration is not None else None,
+                json.dumps(details) if details is not None else None,
+            ),
+        )
+        self.conn.commit()
+
+    def close(self):
+        try:
+            self.conn.close()
+        except Exception:
+            pass
+
+# ==========================================
 # 1. EDGE OPTIMIZED DETECTOR
 # ==========================================
 class EdgeOptimizedDetector:
@@ -45,67 +114,176 @@ class SimpleShaveDetector:
     def __init__(self):
         self.current_state = "EMPTY"
         self.session_id = None
-        self.total_shave_time = 0
+        self.session_start_time = None
+        self.active_shave_start = None
+        self.total_shave_time = 0.0
+        self.active_shavelog_time_taken = 0.0
+        self.event_log = []
         self.consecutive_frames = 0
         self.proximity_threshold = 150
         self.required_frames = 5
-        
-    def process_frame(self, keypoints_list):
+        self.storage = ShaveLogStorage()
+
+    def record_event(self, event_type, timestamp, active_duration=None, total_duration=None, details=None):
+        # Convert details to serializable format
+        details = convert_to_serializable(details) if details is not None else {}
+        event = {
+            'session_id': self.session_id,
+            'event_type': event_type,
+            'timestamp': timestamp.isoformat(),
+            'active_duration': float(active_duration) if active_duration is not None else None,
+            'total_duration': float(total_duration) if total_duration is not None else None,
+            'details': details
+        }
+        self.event_log.append(event)
+        self.storage.store_event(self.session_id, event_type, timestamp, active_duration, total_duration, details)
+        return event
+
+    def finalize_active_shave(self, timestamp=None):
+        if self.active_shave_start is None:
+            return 0.0
+        if timestamp is None:
+            timestamp = time.time()
+        event_time = datetime.fromtimestamp(timestamp)
+        duration = float(timestamp - self.active_shave_start)
+        self.total_shave_time += duration
+        self.active_shavelog_time_taken = duration
+        self.record_event(
+            'SHAVE_ACTIVE_END',
+            event_time,
+            active_duration=duration,
+            total_duration=self.total_shave_time,
+            details={'state': self.current_state}
+        )
+        self.active_shave_start = None
+        return duration
+
+    def end_session(self, timestamp=None):
+        if timestamp is None:
+            timestamp = time.time()
+        if self.session_id is None:
+            self.storage.close()
+            return
+        self.finalize_active_shave(timestamp)
+        event_time = datetime.fromtimestamp(timestamp)
+        session_duration = None
+        if self.session_start_time is not None:
+            session_duration = float(timestamp - self.session_start_time)
+        self.record_event(
+            'SESSION_END',
+            event_time,
+            total_duration=self.total_shave_time,
+            details={'session_duration': session_duration}
+        )
+        print(f"[SESSION END] Total active shave time: {self.total_shave_time:.1f}s")
+        self.session_id = None
+        self.session_start_time = None
+        self.active_shave_start = None
+        self.storage.close()
+
+    def process_frame(self, keypoints_list, timestamp=None):
+        if timestamp is None:
+            timestamp = time.time()
+        event_time = datetime.fromtimestamp(timestamp)
+        previous_state = self.current_state
+
         num_people = len(keypoints_list)
         is_shaving = False
         confidence = 0.0
-        
-        if num_people >= 2 and len(keypoints_list[0]) > 10:
-            barber = keypoints_list[0]
-            customer = keypoints_list[1]
-            
-            left_wrist = barber[9] if len(barber) > 9 else None
-            right_wrist = barber[10] if len(barber) > 10 else None
-            face = customer[0] if len(customer) > 0 else None
-            
-            if face is not None and len(face) >= 2:
-                min_dist = float('inf')
-                for wrist in [left_wrist, right_wrist]:
-                    if wrist is not None and len(wrist) >= 2:
-                        dist = np.linalg.norm(wrist[:2] - face[:2])
-                        min_dist = min(min_dist, dist)
-                
-                if min_dist < self.proximity_threshold:
-                    confidence = 1.0 - (min_dist / self.proximity_threshold)
-                    self.consecutive_frames += 1
-                    if self.consecutive_frames >= self.required_frames:
-                        is_shaving = True
-                else:
-                    self.consecutive_frames = max(0, self.consecutive_frames - 1)
-        else:
-            self.consecutive_frames = max(0, self.consecutive_frames - 1)
-        
-        # Update state
-        if num_people == 0:
-            self.current_state = "EMPTY"
-            if self.session_id:
-                print(f"[SESSION END] Total time: {self.total_shave_time}s")
-                self.session_id = None
-        elif num_people == 1:
-            self.current_state = "CUSTOMER SEATED"
-            if not self.session_id:
-                self.session_id = int(time.time() * 1000)
-                print(f"[SESSION START] Session {self.session_id}")
-        elif num_people >= 2:
-            if is_shaving:
-                self.current_state = "SHAVING ACTIVE"
-                if self.session_id:
-                    self.total_shave_time += 1
+
+        try:
+            if num_people >= 2 and len(keypoints_list[0]) > 10:
+                barber = keypoints_list[0]
+                customer = keypoints_list[1]
+
+                left_wrist = barber[9] if len(barber) > 9 else None
+                right_wrist = barber[10] if len(barber) > 10 else None
+                face = customer[0] if len(customer) > 0 else None
+
+                if face is not None and len(face) >= 2:
+                    min_dist = float('inf')
+                    for wrist in [left_wrist, right_wrist]:
+                        if wrist is not None and len(wrist) >= 2:
+                            dist = np.linalg.norm(wrist[:2] - face[:2])
+                            min_dist = min(min_dist, dist)
+
+                    if min_dist < self.proximity_threshold:
+                        confidence = float(1.0 - (min_dist / self.proximity_threshold))
+                        self.consecutive_frames += 1
+                        if self.consecutive_frames >= self.required_frames:
+                            is_shaving = True
+                    else:
+                        self.consecutive_frames = max(0, self.consecutive_frames - 1)
             else:
-                self.current_state = "BARBER PRESENT"
-        
+                self.consecutive_frames = max(0, self.consecutive_frames - 1)
+        except (IndexError, ValueError, TypeError) as e:
+            # If there's an error processing keypoints, just continue
+            self.consecutive_frames = max(0, self.consecutive_frames - 1)
+
+        if num_people == 0:
+            new_state = "EMPTY"
+        elif num_people == 1:
+            new_state = "CUSTOMER SEATED"
+        elif is_shaving:
+            new_state = "SHAVING ACTIVE"
+        else:
+            new_state = "BARBER PRESENT"
+
+        if new_state == "CUSTOMER SEATED" and self.session_id is None:
+            self.session_id = int(timestamp * 1000)
+            self.session_start_time = timestamp
+            self.record_event(
+                'SESSION_START',
+                event_time,
+                details={'people': num_people}
+            )
+            print(f"[SESSION START] Session {self.session_id}")
+
+        if new_state == "SHAVING ACTIVE":
+            if self.active_shave_start is None:
+                self.active_shave_start = timestamp
+                self.record_event(
+                    'SHAVE_ACTIVE_START',
+                    event_time,
+                    details={'confidence': confidence}
+                )
+        else:
+            if self.active_shave_start is not None:
+                self.finalize_active_shave(timestamp)
+
+        if new_state == "EMPTY" and self.session_id is not None:
+            session_duration = None
+            if self.session_start_time is not None:
+                session_duration = float(timestamp - self.session_start_time)
+            self.record_event(
+                'SESSION_END',
+                event_time,
+                total_duration=self.total_shave_time,
+                details={'session_duration': session_duration}
+            )
+            print(f"[SESSION END] Total active shave time: {self.total_shave_time:.1f}s")
+            self.session_id = None
+            self.session_start_time = None
+
+        if new_state != previous_state:
+            self.record_event(
+                new_state,
+                event_time,
+                total_duration=self.total_shave_time,
+                details={'people': num_people}
+            )
+
+        self.current_state = new_state
+
         return {
-            'shaving': is_shaving,
+            'shaving': bool(is_shaving),
             'state': self.current_state,
-            'confidence': confidence,
+            'confidence': float(confidence),
             'session_id': self.session_id,
-            'total_shave_time': self.total_shave_time,
-            'people': num_people
+            'total_shave_time': float(self.total_shave_time),
+            'active_shavelog_time_taken': float(self.active_shavelog_time_taken),
+            'people': int(num_people),
+            'events': list(self.event_log)
         }
 
 # ==========================================
@@ -219,28 +397,34 @@ class ShaveDetectionSystem:
                 
                 frame_count += 1
                 
-                # Run detection every frame
-                results = self.model(frame, verbose=False)
-                
-                # Extract keypoints
-                keypoints_list = []
-                if results and len(results) > 0 and results[0].keypoints is not None:
-                    keypoints_list = results[0].keypoints.data.cpu().numpy()
-                
-                # Process detection
-                detection = self.detector.process_frame(keypoints_list)
-                
-                # Draw skeleton if available
                 try:
-                    annotated = results[0].plot()
-                except:
-                    annotated = frame.copy()
+                    # Run detection every frame
+                    results = self.model(frame, verbose=False)
+                    
+                    # Extract keypoints
+                    keypoints_list = []
+                    if results and len(results) > 0 and results[0].keypoints is not None:
+                        keypoints_list = results[0].keypoints.data.cpu().numpy()
+                    
+                    # Process detection
+                    detection = self.detector.process_frame(keypoints_list, timestamp=time.time())
+                    
+                    # Draw skeleton if available
+                    try:
+                        annotated = results[0].plot()
+                    except:
+                        annotated = frame.copy()
+                    
+                    # Add overlay
+                    annotated = self.draw_overlay(annotated, detection)
+                    
+                    # Show frame
+                    cv2.imshow("Shave Detection System", annotated)
                 
-                # Add overlay
-                annotated = self.draw_overlay(annotated, detection)
-                
-                # Show frame
-                cv2.imshow("Shave Detection System", annotated)
+                except Exception as e:
+                    # If detection fails, just show the frame and continue
+                    print(f"[WARN] Detection error: {e}")
+                    cv2.imshow("Shave Detection System", frame)
                 
                 # Handle keys
                 key = cv2.waitKey(1) & 0xFF
@@ -270,6 +454,7 @@ class ShaveDetectionSystem:
         print(f"People detected: {detection['people']}")
         print(f"Confidence: {detection['confidence']:.1%}")
         print(f"Total shave time: {detection['total_shave_time']} seconds")
+        print(f"Active shave segment time: {detection['active_shavelog_time_taken']:.1f} seconds")
         if detection['total_shave_time'] > 0:
             print(f"Shave time: {detection['total_shave_time']/60:.1f} minutes")
         print(f"Session ID: {detection['session_id']}")
