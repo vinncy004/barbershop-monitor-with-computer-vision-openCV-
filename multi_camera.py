@@ -6,6 +6,8 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
 import websockets
+from collections import deque
+import numpy as np
 
 class MultiChairManager:
     """Manage multiple camera feeds with temporal synchronization"""
@@ -18,11 +20,14 @@ class MultiChairManager:
         self.executor = ThreadPoolExecutor(max_workers=num_chairs)
         
         # Camera configurations
+        # Default camera configurations — update IP/port/credentials as needed.
+        # For Hikvision mainstream the common RTSP path for channel 1 mainstream is:
+        # rtsp://<user>:<pass>@<ip>:<port>/Streaming/Channels/101
         self.camera_configs = {
-            1: {"url": "rtsp://192.168.1.101:554/stream", "roi": (100, 100, 540, 380)},
-            2: {"url": "rtsp://192.168.1.102:554/stream", "roi": (600, 100, 1040, 380)},
-            3: {"url": "rtsp://192.168.1.103:554/stream", "roi": (100, 420, 540, 700)},
-            4: {"url": "rtsp://192.168.1.104:554/stream", "roi": (600, 420, 1040, 700)}
+            1: {"url": "rtsp://admin:AmsNat_2023@192.168.0.200:544/Streaming/Channels/101", "roi": (100, 100, 540, 380)},
+            2: {"url": "rtsp://admin:AmsNat_2023@192.168.0.200:544/Streaming/Channels/101", "roi": (600, 100, 1040, 380)},
+            3: {"url": "rtsp://admin:AmsNat_2023@192.168.0.200:544/Streaming/Channels/101", "roi": (100, 420, 540, 700)},
+            4: {"url": "rtsp://admin:AmsNat_2023@192.168.0.200:544/Streaming/Channels/101", "roi": (600, 420, 1040, 700)}
         }
         
         # PTP time synchronization
@@ -214,3 +219,37 @@ class OptimizedChairDetector:
         """Adjust frame timestamps"""
         self.time_offset = master_time - time.time()
         self.last_sync_time = time.time()
+
+
+def verify_camera_url(url, timeout=5):
+    """Try to open an RTSP stream and read a frame within `timeout` seconds.
+
+    Returns (True, frame_shape) on success, (False, None) on failure.
+    """
+    cap = cv2.VideoCapture(url)
+    start = time.time()
+    while time.time() - start < timeout:
+        ret, frame = cap.read()
+        if ret and frame is not None:
+            shape = frame.shape
+            cap.release()
+            return True, shape
+        time.sleep(0.2)
+    cap.release()
+    return False, None
+
+
+if __name__ == "__main__":
+    # Quick CLI verification of configured camera URLs
+    mgr = MultiChairManager(num_chairs=4)
+    for cid, cfg in mgr.camera_configs.items():
+        url = cfg.get('url')
+        if not url:
+            print(f"Chair {cid}: no URL configured")
+            continue
+        print(f"Verifying Chair {cid}: {url}")
+        ok, shape = verify_camera_url(url, timeout=8)
+        if ok:
+            print(f"[OK] Chair {cid} stream opened, frame size: {shape}")
+        else:
+            print(f"[FAIL] Chair {cid} stream not reachable")

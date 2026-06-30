@@ -1,0 +1,60 @@
+{% extends 'dashboard_app/base.html' %}
+
+{% block title %}Profile{% endblock %}
+
+{% block page_title %}Profile & CCTV Settings{% endblock %}
+
+{% block content %}
+<section class="card">
+    <div class="card-header">
+        <h2>Profile</h2>
+    </div>
+    <form method="post" class="profile-form">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit" class="button button-primary">Save Profile</button>
+    </form>
+</section>
+
+<section class="card">
+    <div class="card-header">
+        <h2>CCTV Streams</h2>
+    </div>
+    <form method="post" action="{% url 'dashboard_app:add_stream' %}" class="stream-form">
+        {% csrf_token %}
+        {{ stream_form.as_p }}
+        <button type="submit" class="button button-secondary">Add Stream</button>
+    </form>
+    <div class="stream-list">
+        {% for stream in streams %}
+            <article class="stream-card">
+                <h3>{{ stream.name }}</h3>
+                <p>{{ stream.rtsp_url }}</p>
+                <span class="status {{ stream.status|lower }}">{{ stream.status }}</span>
+                <a href="{% url 'dashboard_app:remove_stream' stream.id %}" class="button button-link">Remove</a>
+            </article>
+        {% empty %}
+            <p>No CCTV streams configured yet.</p>
+        {% endfor %}
+    </div>
+</section>
+
+<section class="card">
+    <div class="card-header">
+        <h2>Browser Camera</h2>
+        <p>Select a connected webcam and preview the live feed without using the default camera 0.</p>
+    </div>
+    <div class="camera-card">
+        <div class="camera-controls">
+            <label for="cameraSelect">Camera device</label>
+            <select id="cameraSelect" class="input-field"></select>
+            <button type="button" id="cameraConnectButton" class="button button-primary">Connect Camera</button>
+            <button type="button" id="cameraStopButton" class="button button-secondary">Stop Camera</button>
+        </div>
+        <div class="camera-preview">
+            <video id="cameraPreview" autoplay playsinline muted></video>
+            <p id="cameraStatus" class="status-info">No camera connected.</p>
+        </div>
+    </div>
+</section>
+{% endblock %}

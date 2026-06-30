@@ -1,0 +1,44 @@
+{% extends 'dashboard_app/base.html' %}
+
+{% block title %}Weekly Report{% endblock %}
+
+{% block page_title %}Weekly Report{% endblock %}
+
+{% block content %}
+<section class="card">
+    <div class="card-header">
+        <h2>Weekly Summary</h2>
+        <p>Weekly totals and daily breakdown.</p>
+    </div>
+    <div class="metric-row">
+        <article class="metric-card-small">
+            <span>Total Sessions</span>
+            <strong>{{ report.total_sessions }}</strong>
+        </article>
+        <article class="metric-card-small">
+            <span>Total Shave Time</span>
+            <strong>{{ report.total_shave_time_minutes }} min</strong>
+        </article>
+        <article class="metric-card-small">
+            <span>Average Weekly Duration</span>
+            <strong>{{ report.average_weekly_minutes }} min</strong>
+        </article>
+    </div>
+    <div class="chart-row">
+        <div class="chart-card">
+            <h3>Weekly Trend</h3>
+            <canvas id="weeklyBarChart" data-labels='{{ report.weekly.labels_json }}' data-values='{{ report.weekly.values_json }}'></canvas>
+        </div>
+        <div class="chart-card">
+            <h3>Weekly Avg Duration</h3>
+            <canvas id="weeklyAvgChart" data-labels='{{ report.weekly.labels_json }}' data-values='{{ report.weekly.minutes_json }}'></canvas>
+        </div
+            <canvas id="weeklyBarChart" data-labels='{{ report.weekly.labels_json }}' data-values='{{ report.weekly.values_json }}'></canvas>
+        </div>
+        <div class="chart-card">
+            <h3>Weekly Avg Duration</h3>
+            <canvas id="weeklyAvgChart" data-labels='{{ report.weekly.labels_json }}' data-values='{{ report.weekly.minutes_json }}'></canvas>
+        </div>
+    </div>
+</section>
+{% endblock %}

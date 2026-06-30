@@ -1,0 +1,44 @@
+{% extends 'dashboard_app/base.html' %}
+
+{% block title %}Monthly Report{% endblock %}
+
+{% block page_title %}Monthly Report{% endblock %}
+
+{% block content %}
+<section class="card">
+    <div class="card-header">
+        <h2>Monthly Summary</h2>
+        <p>Monthly performance and long-term trends.</p>
+    </div>
+    <div class="metric-row">
+        <article class="metric-card-small">
+            <span>Total Sessions</span>
+            <strong>{{ report.total_sessions }}</strong>
+        </article>
+        <article class="metric-card-small">
+            <span>Total Shave Time</span>
+            <strong>{{ report.total_shave_time_minutes }} min</strong>
+        </article>
+        <article class="metric-card-small">
+            <span>Average Monthly Duration</span>
+            <strong>{{ report.average_monthly_minutes }} min</strong>
+        </article>
+    </div>
+    <div class="chart-row">
+        <div class="chart-card">
+            <h3>Monthly Trend</h3>
+            <canvas id="monthlyLineChart" data-labels='{{ report.monthly.labels_json }}' data-values='{{ report.monthly.values_json }}'></canvas>
+        </div>
+        <div class="chart-card">
+            <h3>Monthly Avg Duration</h3>
+            <canvas id="monthlyAvgChart" data-labels='{{ report.monthly.labels_json }}' data-values='{{ report.monthly.minutes_json }}'></canvas>
+        </div
+            <canvas id="monthlyLineChart" data-labels='{{ report.monthly.labels_json }}' data-values='{{ report.monthly.values_json }}'></canvas>
+        </div>
+        <div class="chart-card">
+            <h3>Monthly Avg Duration</h3>
+            <canvas id="monthlyAvgChart" data-labels='{{ report.monthly.labels_json }}' data-values='{{ report.monthly.minutes_json }}'></canvas>
+        </div>
+    </div>
+</section>
+{% endblock %}

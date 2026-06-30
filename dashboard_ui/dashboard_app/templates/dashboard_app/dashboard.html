@@ -1,0 +1,143 @@
+{% extends 'dashboard_app/base.html' %}
+
+{% block title %}Dashboard Overview{% endblock %}
+
+{% block page_title %}Dashboard Overview{% endblock %}
+
+{% block content %}
+<div class="grid-large">
+    <section class="dashboard-header-row">
+        <div class="dashboard-header-left">
+            <article class="metric-card">
+                <span class="metric-title">Total Sessions</span>
+                <strong>{{ report.total_sessions }}</strong>
+            </article>
+            <article class="metric-card">
+                <span class="metric-title">People Shaved</span>
+                <strong>{{ report.people_shaved }}</strong>
+            </article>
+        </div>
+        <div class="dashboard-header-right">
+            <a class="button button-secondary" href="{% url 'dashboard_app:clear_history' %}"
+               onclick="return confirm('This will delete all stored shave history and reset the dashboard. Continue?');">
+                Clear history
+            </a>
+        </div>
+    </section>
+    <section class="metric-row">
+        <article class="metric-card">
+            <span class="metric-title">Total Shave Time</span>
+            <strong>{{ report.total_shave_time }} sec · {{ report.total_shave_time_minutes }} min</strong>
+        </article>
+        <article class="metric-card">
+            <span class="metric-title">Average Session</span>
+            <strong>{{ report.average_session_length }} sec · {{ report.average_session_length_minutes }} min</strong>
+        </article>
+        <article class="metric-card">
+            <span class="metric-title">Active Time</span>
+            <strong>{{ report.active_time }} sec · {{ report.active_time_minutes }} min</strong>
+        </article>
+    </section>
+
+    <section class="small-chart-row">
+        <a class="small-chart-card" href="{% url 'dashboard_app:daily_report' %}">
+            <div class="small-chart-header">
+                <span>Daily Avg</span>
+                <strong>{{ report.average_daily_minutes }} min</strong>
+            </div>
+            <canvas id="miniDailyAvgChart" data-labels='{{ report.daily.labels_json }}' data-values='{{ report.daily.minutes_json }}'></canvas>
+            <span class="small-chart-link">View daily report</span>
+        </a>
+        <a class="small-chart-card" href="{% url 'dashboard_app:weekly_report' %}">
+            <div class="small-chart-header">
+                <span>Weekly Avg</span>
+                <strong>{{ report.average_weekly_minutes }} min</strong>
+            </div>
+            <canvas id="miniWeeklyAvgChart" data-labels='{{ report.weekly.labels_json }}' data-values='{{ report.weekly.minutes_json }}'></canvas>
+            <span class="small-chart-link">View weekly report</span>
+        </a>
+        <a class="small-chart-card" href="{% url 'dashboard_app:monthly_report' %}">
+            <div class="small-chart-header">
+                <span>Monthly Avg</span>
+                <strong>{{ report.average_monthly_minutes }} min</strong>
+            </div>
+            <canvas id="miniMonthlyAvgChart" data-labels='{{ report.monthly.labels_json }}' data-values='{{ report.monthly.minutes_json }}'></canvas>
+            <span class="small-chart-link">View monthly report</span>
+        </a>
+    </section>
+
+    <section class="card">
+        <div class="card-header">
+            <div>
+                <h2>Performance Trends</h2>
+                <p>Daily, weekly, and duration distribution for your busiest sessions.</p>
+            </div>
+        </div>
+        <div class="chart-row">
+            <div class="chart-card">
+                <h3>Daily Sessions</h3>
+                <canvas id="dailyChart" data-labels='{{ report.daily.labels_json }}' data-values='{{ report.daily.values_json }}'></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>Weekly Avg Duration</h3>
+                <canvas id="weeklyAvgChart" data-labels='{{ report.weekly.labels_json }}' data-values='{{ report.weekly.minutes_json }}'></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>Monthly Avg Duration</h3>
+                <canvas id="monthlyAvgChart" data-labels='{{ report.monthly.labels_json }}' data-values='{{ report.monthly.minutinutes_json }}'></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>Monthly Avg Duration</h3>
+                <canvas id="monthlyAvgChart" data-labels='{{ report.monthly.labels_json }}' data-values='{{ report.monthly.minutes_json }}'></canvas>
+            </div>
+        </div>
+        <div class="chart-row">
+            <div class="chart-card full-width">
+                <h3>Session Duration Histogram</h3>
+                <canvas id="durationHistogramChart" data-labels='{{ report.duration_histogram.labels_json }}' data-values='{{ report.duration_histogram.values_json }}'></canvas>
+            </div>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="card-header">
+            <h2>Active CCTV Streams</h2>
+        </div>
+        <div class="stream-grid">
+            {% for stream in streams %}
+                <article class="stream-card">
+                    <h3>{{ stream.name }}</h3>
+                    <p>{{ stream.rtsp_url }}</p>
+                    <span class="status {{ stream.status|lower }}">{{ stream.status }}</span>
+                </article>
+            {% empty %}
+                <p>No CCTV streams configured yet.</p>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="card-header">
+            <h2>Recent Events</h2>
+        </div>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Event</th>
+                    <th>Detail</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for event in report.events %}
+                    <tr>
+                        <td>{{ event.time }}</td>
+                        <td>{{ event.event }}</td>
+                        <td>{{ event.detail }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+</div>
+{% endblock %}

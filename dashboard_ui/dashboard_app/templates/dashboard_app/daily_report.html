@@ -1,0 +1,44 @@
+{% extends 'dashboard_app/base.html' %}
+
+{% block title %}Daily Report{% endblock %}
+
+{% block page_title %}Daily Report{% endblock %}
+
+{% block content %}
+<section class="card">
+    <div class="card-header">
+        <h2>Daily Summary</h2>
+        <p>Today’s performance and recent activity.</p>
+    </div>
+    <div class="metric-row">
+        <article class="metric-card-small">
+            <span>Total Sessions</span>
+            <strong>{{ report.total_sessions }}</strong>
+        </article>
+        <article class="metric-card-small">
+            <span>Total Shave Time</span>
+            <strong>{{ report.total_shave_time_minutes }} min</strong>
+        </article>
+        <article class="metric-card-small">
+            <span>Average Session</span>
+            <strong>{{ report.average_session_length_minutes }} min</strong>
+        </article>
+    </div>
+    <div class="chart-row">
+        <div class="chart-card">
+            <h3>Daily Trend</h3>
+            <canvas id="dailyLineChart" data-labels='{{ report.daily.labels_json }}' data-values='{{ report.daily.values_json }}'></canvas>
+        </div>
+        <div class="chart-card">
+            <h3>Daily Avg Duration</h3>
+            <canvas id="dailyAvgChart" data-labels='{{ report.daily.labels_json }}' data-values='{{ report.daily.minutes_json }}'></canvas>
+        </div
+            <canvas id="dailyLineChart" data-labels='{{ report.daily.labels_json }}' data-values='{{ report.daily.values_json }}'></canvas>
+        </div>
+        <div class="chart-card">
+            <h3>Daily Avg Duration</h3>
+            <canvas id="dailyAvgChart" data-labels='{{ report.daily.labels_json }}' data-values='{{ report.daily.minutes_json }}'></canvas>
+        </div>
+    </div>
+</section>
+{% endblock %}

@@ -13,6 +13,13 @@ import os
 import asyncio  # <-- IMPORTANT: This fixes the error
 from pathlib import Path
 
+# Dashboard sync (optional - syncs to Django dashboard if available)
+try:
+    from dashboard_sync import sync_event_to_dashboard
+    HAS_DASHBOARD_SYNC = True
+except ImportError:
+    HAS_DASHBOARD_SYNC = False
+
 # Fix for OpenCV on Windows
 os.environ.pop('QT_QPA_PLATFORM_PLUGIN_PATH', None)
 
@@ -78,6 +85,20 @@ class ShaveLogStorage:
             ),
         )
         self.conn.commit()
+        
+        # Sync to Django dashboard (if available)
+        if HAS_DASHBOARD_SYNC:
+            try:
+                sync_event_to_dashboard(
+                    event_type=event_type,
+                    timestamp=timestamp,
+                    duration_seconds=float(total_duration) if total_duration else 0.0,
+                    details=details,
+                    user_id=1
+                )
+            except Exception as e:
+                # Silently fail - don't interrupt shave detection
+                pass
 
     def close(self):
         try:
