@@ -1,5 +1,9 @@
 import json
+import threading
+import time
 from datetime import datetime, timedelta
+from pathlib import Path
+
 from django.contrib import messages
 from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
@@ -8,7 +12,116 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .forms import DashboardLoginForm, SignUpForm, StreamForm, UserProfileForm
-from .models import CCTVStream, ReportEvent
+from .models import CCTVStream, ReportEvent, User
+from .stream_processor import derive_detection_state
+
+
+STREAM_PROCESSORS = {}
+
+
+def _create_event_for_stream(user, stream, event_type, details=None, duration_seconds=0.0):
+    ReportEvent.objects.create(
+        user=user,
+        timestamp=timezone.now(),
+        event_type=event_type,
+        duration_seconds=float(duration_seconds or 0.0),
+        details=details or {},
+    )
+
+
+def _load_pose_model():
+    try:
+        from ultralytics import YOLO
+    except Exception:
+        return None
+
+    model_path = Path(__file__).resolve().parents[2] / "yolov8n-pose.pt"
+    if not model_path.exists():
+        return None
+    return YOLO(str(model_path))
+
+
+def _run_stream_processor(stream_id, user_id, rtsp_url):
+    import cv2
+
+    cap = cv2.VideoCapture(rtsp_url)
+    if not cap.isOpened():
+        CCTVStream.objects.filter(id=stream_id).update(status="offline")
+        return
+
+    model = _load_pose_model()
+    if model is None:
+        CCTVStream.objects.filter(id=stream_id).update(status="error")
+        cap.release()
+        return
+
+    CCTVStream.objects.filter(id=stream_id).update(status="active")
+    consecutive_frames = 0
+    last_event = None
+
+    while STREAM_PROCESSORS.get(stream_id):
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            time.sleep(0.2)
+            continue
+
+        try:
+            results = model(frame, stream=False, conf=0.4, verbose=False)
+            keypoints_list = []
+            if results and len(results) > 0 and results[0].keypoints is not None:
+                keypoints_list = results[0].keypoints.data.cpu().numpy()
+
+            state, is_shaving, confidence, consecutive_frames = derive_detection_state(
+                keypoints_list,
+                consecutive_frames=consecutive_frames,
+                proximity_threshold=150,
+                required_frames=5,
+            )
+
+            event_type = None
+            details = {"rtsp_url": rtsp_url, "confidence": confidence}
+            if state == "SHAVING ACTIVE" and last_event != "SHAVING ACTIVE":
+                event_type = "SHAVE_ACTIVE_START"
+                last_event = state
+            elif state != "SHAVING ACTIVE" and last_event == "SHAVING ACTIVE":
+                event_type = "SHAVE_ACTIVE_END"
+                last_event = state
+            elif state == "CUSTOMER SEATED" and last_event != "CUSTOMER SEATED":
+                event_type = "SESSION_START"
+                last_event = state
+            elif state == "EMPTY" and last_event not in {None, "EMPTY"}:
+                event_type = "SESSION_END"
+                last_event = state
+
+            if event_type:
+                user = User.objects.filter(id=user_id).first()
+                if user:
+                    _create_event_for_stream(user, None, event_type, details=details)
+        except Exception:
+            pass
+
+        time.sleep(0.2)
+
+    cap.release()
+    CCTVStream.objects.filter(id=stream_id).update(status="inactive")
+
+
+def _start_stream_processor(stream):
+    if stream.id in STREAM_PROCESSORS and STREAM_PROCESSORS[stream.id].is_alive():
+        return
+
+    stop_flag = {"running": True}
+    STREAM_PROCESSORS[stream.id] = threading.Thread(
+        target=_run_stream_processor,
+        args=(stream.id, stream.user_id, stream.rtsp_url),
+        daemon=True,
+    )
+    STREAM_PROCESSORS[stream.id].start()
+
+
+def _stop_stream_processor(stream_id):
+    if stream_id in STREAM_PROCESSORS:
+        STREAM_PROCESSORS.pop(stream_id, None)
 
 
 def home_redirect(request):
@@ -252,7 +365,8 @@ def add_stream(request):
             stream = form.save(commit=False)
             stream.user = request.user
             stream.save()
-            messages.success(request, "RTSP stream added.")
+            _start_stream_processor(stream)
+            messages.success(request, "RTSP stream added and processing started.")
             return redirect(reverse("dashboard_app:profile"))
     return redirect(reverse("dashboard_app:profile"))
 
@@ -261,6 +375,7 @@ def add_stream(request):
 def remove_stream(request, stream_id):
     stream = CCTVStream.objects.filter(id=stream_id, user=request.user).first()
     if stream:
+        _stop_stream_processor(stream.id)
         stream.delete()
         messages.success(request, "Stream removed.")
     return redirect(reverse("dashboard_app:profile"))
