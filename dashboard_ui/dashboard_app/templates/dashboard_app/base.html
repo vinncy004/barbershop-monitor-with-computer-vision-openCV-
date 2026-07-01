@@ -11,15 +11,21 @@
     <script src="{% static 'dashboard_app/dashboard.js' %}" defer></script>
 </head>
 <body>
+    <div class="sidebar-backdrop" id="sidebarBackdrop" aria-hidden="true"></div>
     <div class="app-shell">
-        <aside class="sidebar">
-            <div class="brand">Barbershop Dashboard</div>
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-head">
+                <div class="brand">Barbershop Dashboard</div>
+                <button class="mobile-nav-toggle sidebar-close" id="sidebarClose" type="button" aria-label="Close navigation menu" aria-expanded="false">
+                    <span></span><span></span><span></span>
+                </button>
+            </div>
             <nav class="nav-menu">
-                <a href="{% url 'dashboard_app:dashboard' %}">Overview</a>
-                <a href="{% url 'dashboard_app:daily_report' %}">Daily</a>
-                <a href="{% url 'dashboard_app:weekly_report' %}">Weekly</a>
-                <a href="{% url 'dashboard_app:monthly_report' %}">Monthly</a>
-                <a href="{% url 'dashboard_app:profile' %}">Profile</a>
+                <a href="{% url 'dashboard_app:dashboard' %}"><span class="nav-icon" aria-hidden="true">◉</span><span>Overview</span></a>
+                <a href="{% url 'dashboard_app:daily_report' %}"><span class="nav-icon" aria-hidden="true">📅</span><span>Daily</span></a>
+                <a href="{% url 'dashboard_app:weekly_report' %}"><span class="nav-icon" aria-hidden="true">🗓️</span><span>Weekly</span></a>
+                <a href="{% url 'dashboard_app:monthly_report' %}"><span class="nav-icon" aria-hidden="true">📈</span><span>Monthly</span></a>
+                <a href="{% url 'dashboard_app:profile' %}"><span class="nav-icon" aria-hidden="true">👤</span><span>Profile</span></a>
             </nav>
             <div class="sidebar-footer">
                 {% if user.is_authenticated %}
@@ -31,8 +37,13 @@
         </aside>
         <main class="content">
             <header class="topbar">
-                <div>
-                    <h1>{% block page_title %}Dashboard{% endblock %}</h1>
+                <div class="topbar-left">
+                    <button class="mobile-nav-toggle topbar-hamburger" id="mobileNavToggle" type="button" aria-label="Open navigation menu" aria-controls="sidebar" aria-expanded="false">
+                        <span></span><span></span><span></span>
+                    </button>
+                    <div>
+                        <h1>{% block page_title %}Dashboard{% endblock %}</h1>
+                    </div>
                 </div>
                 <div class="user-info">
                     {% if user.is_authenticated %}
@@ -45,5 +56,35 @@
             </section>
         </main>
     </div>
+    <script>
+        const sidebar = document.getElementById('sidebar');
+        const backdrop = document.getElementById('sidebarBackdrop');
+        const openButton = document.getElementById('mobileNavToggle');
+        const closeButton = document.getElementById('sidebarClose');
+        const navLinks = sidebar ? Array.from(sidebar.querySelectorAll('.nav-menu a')) : [];
+
+        const setMenuState = (isOpen) => {
+            if (!sidebar || !backdrop || !openButton) return;
+            sidebar.classList.toggle('open', isOpen);
+            backdrop.classList.toggle('visible', isOpen);
+            backdrop.setAttribute('aria-hidden', String(!isOpen));
+            openButton.setAttribute('aria-expanded', String(isOpen));
+            if (closeButton) {
+                closeButton.setAttribute('aria-expanded', String(isOpen));
+            }
+            document.body.classList.toggle('menu-open', isOpen);
+        };
+
+        openButton?.addEventListener('click', () => setMenuState(true));
+        closeButton?.addEventListener('click', () => setMenuState(false));
+        backdrop?.addEventListener('click', () => setMenuState(false));
+        navLinks.forEach((link) => link.addEventListener('click', () => setMenuState(false)));
+
+        window.addEventListener('resize', () => {
+            if (window.innerWidth > 1024) {
+                setMenuState(false);
+            }
+        });
+    </script>
 </body>
 </html>
