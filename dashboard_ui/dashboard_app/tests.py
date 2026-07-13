@@ -1,5 +1,7 @@
+from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase
 
+from .models import BusinessPerformanceEntry, InventoryItem
 from .stream_processor import derive_detection_state
 
 
@@ -37,3 +39,16 @@ class StreamProcessorTests(SimpleTestCase):
         self.assertTrue(is_shaving)
         self.assertGreater(confidence, 0)
         self.assertEqual(consecutive_frames, 5)
+
+
+class InventoryFeatureTests(SimpleTestCase):
+    def test_inventory_total_cost_and_monthly_expense_are_calculated_per_user(self):
+        user = get_user_model().objects.create_user(username="owner", email="owner@example.com", password="password123")
+
+        InventoryItem.objects.create(user=user, product="Shears", cost=120.0)
+        InventoryItem.objects.create(user=user, product="Gel", cost=80.0)
+        BusinessPerformanceEntry.objects.create(user=user, month="2026-07", expenses=250.0, outcome="Strong sales")
+
+        self.assertEqual(InventoryItem.objects.filter(user=user).count(), 2)
+        self.assertEqual(InventoryItem.objects.filter(user=user).aggregate(total_cost=models.Sum("cost"))["total_cost"], 200.0)
+        self.assertEqual(BusinessPerformanceEntry.objects.filter(user=user, month="2026-07").first().expenses, 250.0)

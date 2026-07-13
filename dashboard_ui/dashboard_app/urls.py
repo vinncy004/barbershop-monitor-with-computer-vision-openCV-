@@ -16,4 +16,5 @@ urlpatterns = [
     path("profile/", views.profile, name="profile"),
     path("profile/add-stream/", views.add_stream, name="add_stream"),
     path("profile/remove-stream/<int:stream_id>/", views.remove_stream, name="remove_stream"),
+    path("inventory/", views.inventory, name="inventory"),
 ]

@@ -1,0 +1,134 @@
+{% extends 'dashboard_app/base.html' %}
+
+{% block title %}Inventory{% endblock %}
+
+{% block page_title %}Inventory{% endblock %}
+
+{% block content %}
+<div class="grid-large">
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert {{ message.tags }}">{{ message }}</div>
+        {% endfor %}
+    {% endif %}
+
+    <section class="card">
+        <div class="card-header">
+            <div>
+                <h2>Inventory Entry</h2>
+                <p>Add a product and its cost. The creation date defaults to today.</p>
+            </div>
+        </div>
+        <form method="post" class="form-grid">
+            {% csrf_token %}
+            {{ inventory_form.non_field_errors }}
+            <div class="field">
+                <label for="id_product">Product</label>
+                {{ inventory_form.product }}
+            </div>
+            <div class="field">
+                <label for="id_cost">Cost</label>
+                {{ inventory_form.cost }}
+            </div>
+            <div class="field">
+                <label for="id_created_at">Date of creation</label>
+                {{ inventory_form.created_at }}
+            </div>
+            <div class="field field-actions">
+                <button class="button" type="submit" name="inventory_submit">Save Inventory</button>
+            </div>
+        </form>
+    </section>
+
+    <section class="card">
+        <div class="card-header">
+            <div>
+                <h2>Business Performance</h2>
+                <p>Record expenses and an outcome note for a specific month.</p>
+            </div>
+        </div>
+        <form method="post" class="form-grid">
+            {% csrf_token %}
+            {{ performance_form.non_field_errors }}
+            <div class="field">
+                <label for="id_month">Month</label>
+                {{ performance_form.month }}
+            </div>
+            <div class="field">
+                <label for="id_expenses">Expenses</label>
+                {{ performance_form.expenses }}
+            </div>
+            <div class="field field-full">
+                <label for="id_outcome">Outcome</label>
+                {{ performance_form.outcome }}
+            </div>
+            <div class="field field-actions">
+                <button class="button" type="submit" name="performance_submit">Add Expenses</button>
+            </div>
+        </form>
+    </section>
+
+    <section class="card">
+        <div class="card-header">
+            <div>
+                <h2>Inventory Summary</h2>
+                <p>View the total inventory cost and the latest monthly performance entries.</p>
+            </div>
+            <form method="post">
+                {% csrf_token %}
+                <button class="button button-secondary" type="submit" name="view_total">View Inventory Total Cost</button>
+            </form>
+        </div>
+        <div class="metric-row">
+            <article class="metric-card">
+                <span class="metric-title">Inventory Total Cost</span>
+                <strong>{{ inventory_total|floatformat:2 }}</strong>
+            </article>
+        </div>
+
+        <h3>Inventory Items</h3>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Product</th>
+                    <th>Cost</th>
+                    <th>Date</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in inventory_items %}
+                    <tr>
+                        <td>{{ item.product }}</td>
+                        <td>{{ item.cost }}</td>
+                        <td>{{ item.created_at }}</td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="3">No inventory items recorded yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <h3>Business Performance Entries</h3>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Month</th>
+                    <th>Expenses</th>
+                    <th>Outcome</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in performance_entries %}
+                    <tr>
+                        <td>{{ entry.month }}</td>
+                        <td>{{ entry.expenses }}</td>
+                        <td>{{ entry.outcome }}</td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="3">No monthly performance entries recorded yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+</div>
+{% endblock %}

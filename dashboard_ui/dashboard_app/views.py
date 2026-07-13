@@ -7,12 +7,20 @@ from pathlib import Path
 from django.contrib import messages
 from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
+from django.db.models import Sum
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
 
-from .forms import DashboardLoginForm, SignUpForm, StreamForm, UserProfileForm
-from .models import CCTVStream, ReportEvent, User
+from .forms import (
+    BusinessPerformanceEntryForm,
+    DashboardLoginForm,
+    InventoryItemForm,
+    SignUpForm,
+    StreamForm,
+    UserProfileForm,
+)
+from .models import BusinessPerformanceEntry, CCTVStream, InventoryItem, ReportEvent, User
 from .stream_processor import derive_detection_state
 
 
@@ -354,6 +362,50 @@ def profile(request):
         "form": form,
         "streams": streams,
         "stream_form": stream_form,
+    })
+
+
+@login_required
+def inventory(request):
+    inventory_items = InventoryItem.objects.filter(user=request.user).order_by("-created_at", "-id")
+    performance_entries = BusinessPerformanceEntry.objects.filter(user=request.user).order_by("-created_at", "-id")
+    inventory_total = inventory_items.aggregate(total_cost=Sum("cost"))["total_cost"] or 0
+
+    inventory_form = InventoryItemForm()
+    performance_form = BusinessPerformanceEntryForm()
+
+    if request.method == "POST":
+        if "inventory_submit" in request.POST:
+            inventory_form = InventoryItemForm(request.POST)
+            if inventory_form.is_valid():
+                item = inventory_form.save(commit=False)
+                item.user = request.user
+                item.save()
+                messages.success(request, "Inventory item added successfully.")
+                return redirect(reverse("dashboard_app:inventory"))
+        elif "performance_submit" in request.POST:
+            performance_form = BusinessPerformanceEntryForm(request.POST)
+            if performance_form.is_valid():
+                entry = performance_form.save(commit=False)
+                entry.user = request.user
+                existing_entry = BusinessPerformanceEntry.objects.filter(user=request.user, month=entry.month).first()
+                if existing_entry:
+                    existing_entry.expenses += entry.expenses
+                    existing_entry.outcome = entry.outcome or existing_entry.outcome
+                    existing_entry.save()
+                else:
+                    entry.save()
+                messages.success(request, "Business performance expense added for the selected month.")
+                return redirect(reverse("dashboard_app:inventory"))
+        elif "view_total" in request.POST:
+            messages.info(request, f"Inventory total cost is {inventory_total:.2f}.")
+
+    return render(request, "dashboard_app/inventory.html", {
+        "inventory_form": inventory_form,
+        "performance_form": performance_form,
+        "inventory_items": inventory_items,
+        "performance_entries": performance_entries,
+        "inventory_total": inventory_total,
     })
 
 

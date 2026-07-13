@@ -23,9 +23,7 @@ except ImportError:
 # Fix for OpenCV on Windows
 os.environ.pop('QT_QPA_PLATFORM_PLUGIN_PATH', None)
 
-# ==========================================
-# 0. UTILITY FUNCTIONS
-# ==========================================
+
 def convert_to_serializable(obj):
     """Convert numpy and other non-serializable types to native Python types"""
     if isinstance(obj, dict):
@@ -41,9 +39,7 @@ def convert_to_serializable(obj):
     else:
         return str(obj)
 
-# ==========================================
-# 1. SHAVE LOG STORAGE
-# ==========================================
+
 class ShaveLogStorage:
     def __init__(self, db_path="shavelog.db"):
         self.db_path = Path(db_path)
@@ -106,9 +102,6 @@ class ShaveLogStorage:
         except Exception:
             pass
 
-# ==========================================
-# 1. EDGE OPTIMIZED DETECTOR
-# ==========================================
 class EdgeOptimizedDetector:
     def __init__(self, platform="windows"):
         self.platform = platform
@@ -128,9 +121,7 @@ class EdgeOptimizedDetector:
             frame = cv2.resize(frame, (new_w, new_h))
         return frame
 
-# ==========================================
-# 2. SIMPLE STATE MACHINE (NO GUI DEPENDENCIES)
-# ==========================================
+
 class SimpleShaveDetector:
     def __init__(self):
         self.current_state = "EMPTY"
@@ -307,9 +298,7 @@ class SimpleShaveDetector:
             'events': list(self.event_log)
         }
 
-# ==========================================
-# 3. MAIN SYSTEM (NO WEBSOCKET/ASYNC ISSUES)
-# ==========================================
+
 class ShaveDetectionSystem:
     def __init__(self):
         print("[INIT] Starting Shave Detection System...")
@@ -494,9 +483,7 @@ class ShaveDetectionSystem:
         print("="*60)
         print("\n[SHUTDOWN] System stopped")
 
-# ==========================================
-# MAIN ENTRY POINT
-# ==========================================
+
 if __name__ == "__main__":
     system = ShaveDetectionSystem()
     system.run()

@@ -1,5 +1,9 @@
+from datetime import date
+
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.utils import timezone
+
 
 class User(AbstractUser):
     phone = models.CharField(max_length=20, blank=True, null=True)
@@ -28,3 +32,27 @@ class ReportEvent(models.Model):
 
     def __str__(self):
         return f"{self.event_type} @ {self.timestamp}"
+
+
+class InventoryItem(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="inventory_items")
+    product = models.CharField(max_length=200)
+    cost = models.FloatField(default=0.0)
+    created_at = models.DateField(default=date.today)
+
+    def __str__(self):
+        return f"{self.product} - {self.cost}"
+
+
+class BusinessPerformanceEntry(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="business_performance_entries")
+    month = models.CharField(max_length=7)
+    expenses = models.FloatField(default=0.0)
+    outcome = models.TextField(blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        unique_together = ("user", "month")
+
+    def __str__(self):
+        return f"{self.month} - {self.expenses}"

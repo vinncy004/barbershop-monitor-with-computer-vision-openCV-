@@ -1,6 +1,6 @@
 from django import forms
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
-from .models import User, CCTVStream
+from .models import User, CCTVStream, InventoryItem, BusinessPerformanceEntry
 
 class SignUpForm(UserCreationForm):
     email = forms.EmailField(required=True)
@@ -28,3 +28,21 @@ class UserProfileForm(forms.ModelForm):
 
 class DashboardLoginForm(AuthenticationForm):
     username = forms.CharField(widget=forms.TextInput(attrs={"autofocus": True}))
+
+
+class InventoryItemForm(forms.ModelForm):
+    class Meta:
+        model = InventoryItem
+        fields = ["product", "cost", "created_at"]
+        widgets = {
+            "created_at": forms.DateInput(attrs={"type": "date"}),
+        }
+
+
+class BusinessPerformanceEntryForm(forms.ModelForm):
+    class Meta:
+        model = BusinessPerformanceEntry
+        fields = ["month", "expenses", "outcome"]
+        widgets = {
+            "month": forms.TextInput(attrs={"placeholder": "YYYY-MM"}),
+        }
