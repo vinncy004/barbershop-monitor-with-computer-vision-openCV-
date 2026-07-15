@@ -1,5 +1,7 @@
+import os
 from pathlib import Path
-import dj_database_url
+
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -49,12 +51,12 @@ WSGI_APPLICATION = "dashboard_ui.wsgi.application"
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql.psycopg2",
-        "NAME":"railway",
-        "USER": "railway",
-        "PASSWORD":"cGWwbaQBAWKyXNQcBKQViBwCbWuSRfbI",
-        "HOST":"postgres.railway.internal",
-        "PORT":"5432"
+        "ENGINE": "django.db.backends.mysql",
+        "NAME": os.environ.get("DB_NAME", "shavelog"),
+        "USER": os.environ.get("DB_USER", "root"),
+        "PASSWORD": os.environ.get("DB_PASSWORD", ""),
+        "HOST": os.environ.get("DB_HOST", "localhost"),
+        "PORT": os.environ.get("DB_PORT", "3306"),
     }
 }
 

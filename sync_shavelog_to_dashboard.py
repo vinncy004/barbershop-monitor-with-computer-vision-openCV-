@@ -5,128 +5,112 @@ Run this script to transfer all shave detection events from shavelog.db
 to the Django dashboard's ReportEvent table.
 """
 
-import sqlite3
 import json
 import os
 import sys
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
+# Add the Django project to sys.path so we can use ORM from this script
+PROJECT_ROOT = Path(__file__).resolve().parent / "dashboard_ui"
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dashboard_ui.settings")
+
+import django
+from django.utils import timezone
+
+django.setup()
+
+from dashboard_app.models import ReportEvent, User
+
 # Paths
 SHAVELOG_DB = Path(__file__).parent / "shavelog.db"
-DJANGO_DB = Path(__file__).parent / "dashboard_ui" / "db.sqlite3"
 
 # Default user ID (first user in Django)
 DEFAULT_USER_ID = 1
 
 
 def sync_shavelog_to_dashboard():
-    """Sync all events from shavelog.db to Django dashboard database"""
-    
+    """Sync all events from shavelog.db into the Django dashboard database."""
+
     if not SHAVELOG_DB.exists():
         print(f"ERROR: shavelog.db not found at {SHAVELOG_DB}")
         return False
-    
-    if not DJANGO_DB.exists():
-        print(f"ERROR: Django db.sqlite3 not found at {DJANGO_DB}")
+
+    user = User.objects.filter(id=DEFAULT_USER_ID).first()
+    if not user:
+        print(f"ERROR: Django user with ID {DEFAULT_USER_ID} not found")
         return False
-    
+
+    shavelog_conn = None
     try:
-        # Open shavelog database
         shavelog_conn = sqlite3.connect(str(SHAVELOG_DB))
         shavelog_conn.row_factory = sqlite3.Row
         shavelog_cur = shavelog_conn.cursor()
-        
-        # Open Django database
-        django_conn = sqlite3.connect(str(DJANGO_DB))
-        django_cur = django_conn.cursor()
-        
-        # Get all events from shavelog
+
         shavelog_cur.execute("""
-            SELECT id, session_id, event_type, timestamp, 
+            SELECT id, session_id, event_type, timestamp,
                    active_duration, total_duration, details
             FROM events
             ORDER BY id
         """)
         events = shavelog_cur.fetchall()
-        
+
         print(f"Found {len(events)} events in shavelog.db")
-        
-        # Check how many are already synced
-        django_cur.execute("SELECT COUNT(*) FROM dashboard_app_reportevent")
-        existing_count = django_cur.fetchone()[0]
+
+        existing_count = ReportEvent.objects.filter(user=user).count()
         print(f"Dashboard already has {existing_count} events")
-        
+
         if existing_count > 0:
             print("Skipping sync (events already exist)")
             return True
-        
-        # Sync each event
+
         synced_count = 0
         for event in events:
             try:
-                # Parse timestamp
-                timestamp_str = event['timestamp']
+                timestamp_str = event["timestamp"]
                 if timestamp_str:
-                    # Convert ISO format to datetime
-                    if 'T' in timestamp_str:
-                        timestamp = datetime.fromisoformat(timestamp_str)
-                    else:
-                        timestamp = datetime.fromisoformat(timestamp_str)
+                    timestamp = datetime.fromisoformat(timestamp_str)
                 else:
                     timestamp = datetime.now()
-                
-                # Parse details JSON
+
+                if timestamp.tzinfo is None:
+                    timestamp = timezone.make_aware(timestamp)
+
                 details = None
-                if event['details']:
+                if event["details"]:
                     try:
-                        details = json.loads(event['details'])
+                        details = json.loads(event["details"])
                     except (json.JSONDecodeError, TypeError):
-                        details = {'raw': str(event['details'])}
-                
-                # Insert into Django dashboard
-                django_cur.execute("""
-                    INSERT INTO dashboard_app_reportevent 
-                    (user_id, timestamp, event_type, duration_seconds, details)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (
-                    DEFAULT_USER_ID,
-                    timestamp,
-                    event['event_type'],
-                    event['total_duration'] if event['total_duration'] is not None else 0.0,
-                    json.dumps(details) if details else None
-                ))
-                
+                        details = {"raw": str(event["details"])}
+
+                ReportEvent.objects.create(
+                    user=user,
+                    timestamp=timestamp,
+                    event_type=event["event_type"],
+                    duration_seconds=float(event["total_duration"] or 0.0),
+                    details=details,
+                )
                 synced_count += 1
-                
             except Exception as e:
                 print(f"  Error syncing event {event['id']}: {e}")
                 continue
-        
-        # Commit changes
-        django_conn.commit()
-        
+
         print(f"\n[SUCCESS] Synced {synced_count} events to dashboard!")
         print(f"   User ID: {DEFAULT_USER_ID}")
-        print(f"   Database: {DJANGO_DB}")
-        
         return True
-        
+
     except Exception as e:
         print(f"ERROR: {e}")
         import traceback
         traceback.print_exc()
         return False
-    
+
     finally:
-        try:
+        if shavelog_conn is not None:
             shavelog_conn.close()
-        except:
-            pass
-        try:
-            django_conn.close()
-        except:
-            pass
 
 
 if __name__ == "__main__":

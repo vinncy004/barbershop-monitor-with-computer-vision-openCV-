@@ -12,85 +12,60 @@ Usage in shavelog.py:
     sync_event_to_dashboard(event_type, timestamp, total_duration, details, user_id=1)
 """
 
-import sqlite3
 import json
 import os
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
+
+# Add the Django project to sys.path so this standalone module can use ORM
+PROJECT_ROOT = Path(__file__).resolve().parent / "dashboard_ui"
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dashboard_ui.settings")
+
+import django
+from django.utils import timezone
+
+django.setup()
+
+from dashboard_app.models import ReportEvent, User
 
 
-def get_django_db_path():
-    """Get path to Django database"""
-    return Path(__file__).parent / "dashboard_ui" / "db.sqlite3"
-
-
-def sync_event_to_dashboard(event_type, timestamp, duration_seconds=0.0, 
-                            details=None, user_id=1):
-    """
-    Sync a single event to the Django dashboard database.
-    
-    Args:
-        event_type: Type of event (e.g., 'SESSION_START', 'CUSTOMER SEATED')
-        timestamp: Event timestamp (datetime or ISO string)
-        duration_seconds: Duration of the event in seconds (default: 0.0)
-        details: Additional event details (dict, optional)
-        user_id: Django user ID to associate with the event (default: 1)
-    
-    Returns:
-        bool: True if sync succeeded, False otherwise
-    """
+def sync_event_to_dashboard(event_type, timestamp, duration_seconds=0.0, details=None, user_id=1):
+    """Sync a single event into the Django dashboard database."""
     try:
-        django_db = get_django_db_path()
-        
-        if not django_db.exists():
-            print(f"[DASHBOARD SYNC] Warning: Django database not found at {django_db}")
-            return False
-        
-        # Parse timestamp
         if isinstance(timestamp, str):
-            if 'T' in timestamp:
-                ts = datetime.fromisoformat(timestamp)
-            else:
-                ts = datetime.fromisoformat(timestamp)
-        else:
-            ts = timestamp
-        
-        # Ensure details is JSON serializable
-        if details is not None:
-            details_json = json.dumps(_serialize_for_json(details))
-        else:
-            details_json = None
-        
-        # Connect and insert
-        conn = sqlite3.connect(str(django_db))
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            INSERT INTO dashboard_app_reportevent 
-            (user_id, timestamp, event_type, duration_seconds, details)
-            VALUES (?, ?, ?, ?, ?)
-        """, (
-            user_id,
-            ts.isoformat(),
-            event_type,
-            float(duration_seconds) if duration_seconds else 0.0,
-            details_json
-        ))
-        
-        conn.commit()
-        conn.close()
-        
+            timestamp = datetime.fromisoformat(timestamp)
+
+        if timestamp.tzinfo is None:
+            timestamp = timezone.make_aware(timestamp)
+
+        details = _serialize_for_json(details) if details is not None else None
+
+        user = User.objects.filter(id=user_id).first()
+        if not user:
+            print(f"[DASHBOARD SYNC] User with ID {user_id} not found")
+            return False
+
+        ReportEvent.objects.create(
+            user=user,
+            timestamp=timestamp,
+            event_type=event_type,
+            duration_seconds=float(duration_seconds or 0.0),
+            details=details,
+        )
+
         return True
-        
     except Exception as e:
         print(f"[DASHBOARD SYNC] Error syncing event: {e}")
         return False
 
 
 def _serialize_for_json(obj):
-    """Recursively convert non-JSON-serializable objects to JSON-safe types"""
+    """Recursively convert non-JSON-serializable objects to JSON-safe types."""
     import numpy as np
-    
+
     if isinstance(obj, dict):
         return {k: _serialize_for_json(v) for k, v in obj.items()}
     elif isinstance(obj, (list, tuple)):
@@ -105,15 +80,13 @@ def _serialize_for_json(obj):
         return str(obj)
 
 
-# Example usage (for testing):
 if __name__ == "__main__":
-    # Test sync
     from datetime import datetime
     result = sync_event_to_dashboard(
         event_type="TEST_EVENT",
         timestamp=datetime.now(),
         duration_seconds=5.5,
         details={"note": "This is a test event"},
-        user_id=1
+        user_id=1,
     )
     print(f"Sync result: {result}")
