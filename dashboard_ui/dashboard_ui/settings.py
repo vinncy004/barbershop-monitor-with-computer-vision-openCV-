@@ -52,10 +52,10 @@ WSGI_APPLICATION = "dashboard_ui.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
-        "NAME": os.environ.get("DB_NAME", "shavelog"),
+        "NAME": os.environ.get("DB_NAME", "railway"),
         "USER": os.environ.get("DB_USER", "root"),
-        "PASSWORD": os.environ.get("DB_PASSWORD", ""),
-        "HOST": os.environ.get("DB_HOST", "localhost"),
+        "PASSWORD": os.environ.get("DB_PASSWORD", "AJhBqUeCHhVbWQoOhWImzpTqZrYQjEdt"),
+        "HOST": os.environ.get("DB_HOST", "mysql.railway.internal"),
         "PORT": os.environ.get("DB_PORT", "3306"),
     }
 }
