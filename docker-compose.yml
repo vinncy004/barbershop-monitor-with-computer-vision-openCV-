@@ -1,5 +1,5 @@
-# Local stand-in for the Railway setup: same image, same env vars, a MySQL
-# service where Railway would give you the plugin.
+# Local stand-in for the Vercel deployment: the same image Vercel builds, plus
+# a MySQL service standing in for whatever managed database you attach.
 services:
   db:
     image: mysql:8.0
@@ -19,7 +19,7 @@ services:
   web:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.vercel
     env_file:
       - .env
     environment:

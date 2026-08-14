@@ -15,31 +15,46 @@ def env_list(name):
     return [item.strip() for item in os.environ.get(name, "").split(",") if item.strip()]
 
 
-# Railway injects these automatically for the service.
-RAILWAY_PUBLIC_DOMAIN = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
-RAILWAY_PRIVATE_DOMAIN = os.environ.get("RAILWAY_PRIVATE_DOMAIN", "")
+ON_VERCEL = env_bool("VERCEL")
+
+# Vercel exposes these at runtime, hostname only with no scheme. They require
+# "Enable access to System Environment Variables" in the project settings; if
+# that is off, none of them are set and DJANGO_ALLOWED_HOSTS must be given
+# explicitly or every request answers 400 DisallowedHost.
+PLATFORM_DOMAINS = [
+    os.environ.get("VERCEL_URL", ""),
+    os.environ.get("VERCEL_BRANCH_URL", ""),
+    os.environ.get("VERCEL_PROJECT_PRODUCTION_URL", ""),
+    # Kept so a Railway deployment still works during the switch over; these
+    # variables simply do not exist on Vercel.
+    os.environ.get("RAILWAY_PUBLIC_DOMAIN", ""),
+    os.environ.get("RAILWAY_PRIVATE_DOMAIN", ""),
+]
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-local-development-key-only")
 DEBUG = env_bool("DJANGO_DEBUG", False)
 
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS") or ["localhost", "127.0.0.1", "[::1]"]
-# Railway's health check probe arrives with Host: healthcheck.railway.app, not
-# the public domain. Without it here Django answers 400 DisallowedHost, the
-# check never goes green, and the deploy is rolled back.
-for domain in (RAILWAY_PUBLIC_DOMAIN, RAILWAY_PRIVATE_DOMAIN, "healthcheck.railway.app"):
+for domain in PLATFORM_DOMAINS:
     if domain and domain not in ALLOWED_HOSTS:
         ALLOWED_HOSTS.append(domain)
 if env_bool("DJANGO_ALLOW_ALL_HOSTS"):
     ALLOWED_HOSTS = ["*"]
 
-# Django 4+ checks the Origin header on unsafe requests, and behind Railway's proxy
-# the request looks like https://<domain>, so that origin has to be trusted explicitly.
+# Django 4+ checks the Origin header on unsafe requests, and behind the platform
+# proxy the request looks like https://<domain>, so those origins have to be
+# trusted explicitly or every login and form POST fails with 403.
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
-if RAILWAY_PUBLIC_DOMAIN:
-    CSRF_TRUSTED_ORIGINS.append(f"https://{RAILWAY_PUBLIC_DOMAIN}")
+for domain in PLATFORM_DOMAINS:
+    if domain:
+        CSRF_TRUSTED_ORIGINS.append(f"https://{domain}")
+# Preview deployments get a fresh generated hostname per push, so trust the
+# wildcard too rather than needing a redeploy to add each one.
+if ON_VERCEL:
+    CSRF_TRUSTED_ORIGINS.append("https://*.vercel.app")
 CSRF_TRUSTED_ORIGINS = list(dict.fromkeys(CSRF_TRUSTED_ORIGINS))
 
-# Railway terminates TLS at its edge and forwards plain HTTP to the container.
+# Vercel terminates TLS at its edge and forwards plain HTTP to the container.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 if not DEBUG:
@@ -48,7 +63,7 @@ if not DEBUG:
     SESSION_COOKIE_SECURE = env_bool("DJANGO_SECURE_COOKIES", True)
     CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
     SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", True)
-    # Railway's health check probes the container over plain HTTP, so that one
+    # Platform health probes hit the container over plain HTTP, so that one
     # path must not be redirected to https.
     SECURE_REDIRECT_EXEMPT = [r"^healthz/?$"]
     # Opt-in: HSTS is hard to undo once a browser has cached it, so enable it
@@ -101,7 +116,11 @@ WSGI_APPLICATION = "dashboard_ui.wsgi.application"
 # variables, and finally to sqlite so the project still runs locally with no
 # configuration at all.
 DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("MYSQL_URL")
-CONN_MAX_AGE = int(os.environ.get("DB_CONN_MAX_AGE", "600"))
+# Vercel autoscales containers and scales to zero, so many short-lived
+# instances each holding an open connection will exhaust the database's
+# connection limit. Close connections after each request there; keep them
+# persistent on a long-running host.
+CONN_MAX_AGE = int(os.environ.get("DB_CONN_MAX_AGE", "0" if ON_VERCEL else "600"))
 
 if DATABASE_URL:
     DATABASES = {

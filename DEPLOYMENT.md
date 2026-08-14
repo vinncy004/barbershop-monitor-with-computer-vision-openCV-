@@ -1,89 +1,113 @@
-# Deploying the dashboard to Railway
+# Deploying the dashboard to Vercel
 
 The deployable website is the Django project in `dashboard_ui/`. The computer
 vision scripts at the repository root (`shavelog.py`, `multi_camera.py`,
 `main.py`, …) are **not** part of the web service and are excluded from the
-Docker image — they need a camera feed and a GPU-class runtime, neither of which
-a Railway web service has.
+image — they need a camera feed and a GPU-class runtime, neither of which a
+Vercel Function has.
 
-## What is in the image
+Vercel [supports Dockerfiles](https://vercel.com/blog/dockerfile-on-vercel) as
+of 30 June 2026: it detects a `Dockerfile.vercel` at the repository root,
+builds the image, and runs it as a Vercel Function on Fluid compute. The only
+hard contract is that **the server listens on `$PORT`** (Vercel routes to `80`
+by default).
+
+## What is in the repository
 
 | File | Purpose |
 | --- | --- |
-| `Dockerfile` | Two-stage build: compiles the DB drivers in a builder stage, ships only the runtime libs (≈380 MB final image) |
-| `docker-entrypoint.sh` | Waits for the database, runs `migrate`, then execs gunicorn |
-| `railway.json` | Tells Railway to use the Dockerfile and health-check `/healthz` |
-| `.dockerignore` | Keeps the CV scripts, the model weights, and local databases out of the build context |
+| `Dockerfile.vercel` | The image Vercel builds. Two-stage, so the DB driver toolchain stays out of the final image (~380 MB) |
+| `docker-entrypoint.sh` | Waits for the database and execs gunicorn. Skips migrations on Vercel — see below |
+| `.dockerignore` | Keeps the CV scripts, model weights, and local databases out of the build context |
 | `docker-compose.yml` | Runs the same image locally against a MySQL container |
 
-Static files are collected into `dashboard_ui/staticfiles/` at **build** time and
-served by WhiteNoise, so no separate web server or volume is needed.
+Static files are collected into the image at **build** time and served by
+WhiteNoise. Nothing is written at runtime, which matters because Vercel
+containers are stateless with no durable storage.
 
 ## Deploying
 
-1. **Create the project.** In Railway: *New Project → Deploy from GitHub repo*
-   and pick this repository. Railway detects `railway.json` and builds with the
-   Dockerfile. Leave the service root directory as the repository root.
+1. **Import the project.** Vercel → *Add New → Project* → pick this repository.
+   It detects `Dockerfile.vercel` and routes all traffic to the container.
+   Leave the root directory as the repository root.
 
-2. **Add the database.** *New → Database → MySQL* (Postgres works too — the
-   settings accept either).
+2. **Turn on system environment variables.** Project → Settings → Environment
+   Variables → tick **"Enable access to System Environment Variables"**.
 
-3. **Set the service variables.** On the web service, under *Variables*:
+   This is not optional. `VERCEL_URL` and friends are what put your deployment
+   hostname into `ALLOWED_HOSTS`. With it off, every request returns
+   **400 DisallowedHost** unless you set `DJANGO_ALLOWED_HOSTS` by hand.
+
+3. **Attach a database.** Vercel does not host MySQL, so the database lives
+   elsewhere. Either is fine:
+   - **Vercel Postgres / Neon** — add the integration and it sets `DATABASE_URL`.
+   - **Keep an existing MySQL** — use its **public** connection URL. A private
+     host such as `mysql.railway.internal` is unreachable from Vercel, and
+     containers do not support Static IPs, so the database cannot be
+     IP-allowlisted.
+
+4. **Set the environment variables:**
 
    ```
-   DJANGO_SECRET_KEY   = <a long random string>
-   DATABASE_URL        = ${{ MySQL.MYSQL_URL }}
-   DJANGO_DEBUG        = false
+   DJANGO_SECRET_KEY = <a long random string>
+   DATABASE_URL      = <full connection URL>
    ```
 
-   `DATABASE_URL` must use Railway's reference syntax (the `${{ ... }}` form) so
-   it resolves to the private-network URL. For Postgres use
-   `${{ Postgres.DATABASE_URL }}` instead.
-
-   Generate the secret key with:
+   Generate the key with:
 
    ```bash
    python -c "from django.core.management.utils import get_random_secret_key as k; print(k())"
    ```
 
-4. **Generate a domain.** *Settings → Networking → Generate Domain*. Railway
-   then injects `RAILWAY_PUBLIC_DOMAIN`, which the settings automatically add to
-   both `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS` — no extra configuration
-   needed. For a **custom** domain, also set:
-
-   ```
-   DJANGO_ALLOWED_HOSTS        = shop.example.com
-   DJANGO_CSRF_TRUSTED_ORIGINS = https://shop.example.com
-   ```
-
-5. **Create an admin user** — either once via the deploy shell:
+5. **Run the migrations once, from your machine**, pointed at the same database:
 
    ```bash
-   python manage.py createsuperuser
+   docker build -f Dockerfile.vercel -t barbershop .
+   docker run --rm -e DJANGO_SECRET_KEY=migrate -e DATABASE_URL='<same URL>' \
+     -e RUN_MIGRATIONS=1 barbershop python manage.py migrate
    ```
 
-   or by setting `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL` and
-   `DJANGO_SUPERUSER_PASSWORD`, which the entrypoint picks up on next boot.
-   Remove those variables afterwards.
+   Repeat this whenever a deploy adds a migration.
 
-Migrations run automatically on every deploy. Set `RUN_MIGRATIONS=0` to skip
-them.
+6. **Create an admin user** the same way:
+
+   ```bash
+   docker run --rm -it -e DJANGO_SECRET_KEY=admin -e DATABASE_URL='<same URL>' \
+     barbershop python manage.py createsuperuser
+   ```
+
+### Why migrations do not run on deploy
+
+On a long-running host, migrating at container start is convenient. On Vercel
+it is not: containers autoscale and scale to zero after five minutes idle
+(30 seconds on preview), so migrations would run on **every cold start** —
+repeatedly, possibly concurrently, and adding latency to each one.
+
+The entrypoint therefore defaults `RUN_MIGRATIONS` to `0` when `VERCEL` is set,
+and `1` everywhere else. Set `RUN_MIGRATIONS=1` explicitly if you want the old
+behaviour.
 
 ## Environment variables
 
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `DJANGO_SECRET_KEY` | insecure dev key | **Required in production** |
+| `DATABASE_URL` | — | Full connection URL; falls back to `DB_*` vars, then sqlite |
 | `DJANGO_DEBUG` | `false` | Never enable on a public deploy |
-| `DATABASE_URL` / `MYSQL_URL` | — | Full connection URL; falls back to `DB_*` vars, then sqlite |
-| `DJANGO_ALLOWED_HOSTS` | localhost | Comma-separated; Railway's domain is added automatically |
+| `DJANGO_ALLOWED_HOSTS` | localhost | Only needed if system env vars are off, or for a custom domain |
 | `DJANGO_CSRF_TRUSTED_ORIGINS` | — | Comma-separated, **must include the scheme** |
 | `DJANGO_SECURE_SSL_REDIRECT` | `true` | Redirect http → https |
 | `DJANGO_SECURE_COOKIES` | `true` | Set `false` only for local plain-HTTP runs |
 | `DJANGO_SECURE_HSTS_SECONDS` | `0` | Opt-in; `31536000` once the domain is https-only for good |
-| `PORT` | `8000` | Set by Railway |
-| `WEB_CONCURRENCY` | `3` | Gunicorn workers |
-| `RUN_MIGRATIONS` | `1` | Set `0` to skip migrations on boot |
+| `DB_CONN_MAX_AGE` | `0` on Vercel | Connections close per request; autoscaled containers would otherwise exhaust the DB connection limit |
+| `RUN_MIGRATIONS` | `0` on Vercel | See above |
+| `PORT` | `80` | Set by Vercel |
+| `WEB_CONCURRENCY` | `2` | Gunicorn workers |
+
+`VERCEL_URL`, `VERCEL_BRANCH_URL` and `VERCEL_PROJECT_PRODUCTION_URL` are read
+automatically into `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS`. Preview
+deployments get a new hostname per push, so `https://*.vercel.app` is trusted
+for CSRF as well.
 
 ## Running locally
 
@@ -92,31 +116,24 @@ cp .env.example .env          # then edit DJANGO_SECRET_KEY
 docker compose up --build
 ```
 
-The site is at http://localhost:8000. `docker-compose.yml` already overrides the
-host/CSRF/cookie settings so plain HTTP works locally.
+The site is at http://localhost:8000. Compose overrides the host, CSRF and
+cookie settings so plain HTTP works locally.
 
-Without Compose:
-
-```bash
-docker build -t barbershop-web .
-docker run -p 8000:8000 \
-  -e DJANGO_SECRET_KEY=dev-key \
-  -e DJANGO_SECURE_SSL_REDIRECT=false \
-  -e DJANGO_SECURE_COOKIES=false \
-  barbershop-web
-```
-
-With no `DATABASE_URL` set, the app falls back to sqlite, so this runs with no
-database container at all.
+With no `DATABASE_URL` set the app falls back to sqlite, so a bare
+`docker run` needs no database container at all.
 
 ## Notes
 
-- **The CV features are inactive on Railway.** `views.py` imports `cv2` and
+- **Custom domain:** add it in Vercel, then set `DJANGO_ALLOWED_HOSTS` and
+  `DJANGO_CSRF_TRUSTED_ORIGINS` (with `https://`) to match.
+- **The CV features are inactive here.** `views.py` imports `cv2` and
   `ultralytics` lazily inside the stream worker, so the site runs fine without
-  them — a stream just reports status `error` instead of processing. Adding a
-  camera stream is expected to fail in this environment: Railway containers
-  cannot reach an on-premises RTSP camera, and the model weights plus torch
-  would add ~2 GB to the image. Run the detection side on the barbershop's own
-  machine and let it write to the same Railway database.
-- **The health check is `/healthz`**, added in `dashboard_ui/urls.py`. It is
-  exempt from the https redirect so Railway's internal probe succeeds.
+  them. Adding a camera stream cannot work on Vercel: containers are stateless
+  and scale to zero, so a long-lived frame-processing thread has nowhere to
+  live, they cannot reach an on-premises RTSP camera, and torch plus the model
+  weights would add ~2 GB. Run detection on the barbershop's own machine and
+  write to the same database.
+- **`sync_shavelog` does not run in the container** — `.dockerignore` excludes
+  `shavelog.db`, which is produced by the on-premises detector anyway.
+- **`/healthz`** returns 200 for uptime checks and is exempt from the HTTPS
+  redirect.

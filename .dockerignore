@@ -35,7 +35,7 @@ test.py
 # Build artefacts regenerated inside the image.
 dashboard_ui/staticfiles/
 
-Dockerfile
+Dockerfile*
 docker-compose.yml
 *.md
 .DS_Store

@@ -1,9 +1,19 @@
 #!/bin/sh
 set -e
 
-# Railway starts the database service alongside the web service, so the first
-# connection can lose the race. Retry briefly instead of crash-looping.
-if [ "${RUN_MIGRATIONS:-1}" = "1" ]; then
+# Vercel containers autoscale and scale to zero, so migrating on start would
+# run on every cold start - repeatedly, possibly concurrently, and adding
+# latency to each one. Default to off there and migrate out of band instead;
+# on a long-running host migrating on boot is the convenient behaviour.
+if [ -n "${VERCEL}" ]; then
+    RUN_MIGRATIONS="${RUN_MIGRATIONS:-0}"
+else
+    RUN_MIGRATIONS="${RUN_MIGRATIONS:-1}"
+fi
+
+# A freshly started database can refuse the first connection, so retry briefly
+# instead of crash-looping.
+if [ "${RUN_MIGRATIONS}" = "1" ]; then
     attempt=1
     max_attempts="${MIGRATE_MAX_ATTEMPTS:-10}"
     until python manage.py migrate --noinput; do

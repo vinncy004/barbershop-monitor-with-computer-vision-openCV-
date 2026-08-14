@@ -1,8 +1,12 @@
 # syntax=docker/dockerfile:1
 
+# Vercel detects a Dockerfile.vercel at the repository root, builds it, and
+# runs the image as a Vercel Function on Fluid compute. The only hard contract
+# is that the server listens on $PORT (Vercel routes to 80 by default).
+#
 # The deployable website is the Django project in dashboard_ui/. The computer
 # vision scripts at the repository root are not part of the web service and are
-# deliberately left out of the image (see .dockerignore).
+# excluded from the build context (see .dockerignore).
 
 # ---------------------------------------------------------------------------
 # Stage 1: build the virtualenv. The database drivers need a compiler and the
@@ -36,7 +40,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
     DJANGO_SETTINGS_MODULE=dashboard_ui.settings \
-    PORT=8000
+    PORT=80
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libmariadb3 \
@@ -52,24 +56,26 @@ COPY dashboard_ui/ /app/
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Bake the static files into the image so the container needs no writable
-# volume at runtime. The dummy settings keep collectstatic from requiring a
-# real SECRET_KEY or a reachable database during the build.
+# Bake the static files into the image. Vercel containers are stateless with no
+# durable storage, so nothing may be written at runtime.
 RUN DJANGO_SECRET_KEY=build-time-only \
     python manage.py collectstatic --noinput \
     && chown -R appuser:appuser /app/staticfiles
 
 USER appuser
 
-EXPOSE 8000
+EXPOSE 80
 
 ENTRYPOINT ["docker-entrypoint.sh"]
 
-# Railway sets $PORT; the shell form is what lets it be expanded at run time.
+# Vercel sets $PORT; the shell form is what lets it be expanded at run time.
+# --graceful-timeout stays inside the 30s SIGTERM grace period Vercel allows on
+# shutdown, so in-flight requests finish rather than being cut off.
 CMD ["sh", "-c", "exec gunicorn dashboard_ui.wsgi:application \
-      --bind 0.0.0.0:${PORT:-8000} \
-      --workers ${WEB_CONCURRENCY:-3} \
-      --threads ${GUNICORN_THREADS:-2} \
+      --bind 0.0.0.0:${PORT:-80} \
+      --workers ${WEB_CONCURRENCY:-2} \
+      --threads ${GUNICORN_THREADS:-4} \
       --timeout ${GUNICORN_TIMEOUT:-60} \
+      --graceful-timeout ${GUNICORN_GRACEFUL_TIMEOUT:-25} \
       --access-logfile - \
       --error-logfile -"]
