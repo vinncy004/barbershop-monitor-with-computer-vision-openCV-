@@ -419,7 +419,14 @@ def add_stream(request):
             stream.save()
             _start_stream_processor(stream)
             messages.success(request, "RTSP stream added and processing started.")
-            return redirect(reverse("dashboard_app:profile"))
+        else:
+            # This view redirects rather than re-rendering, so the bound form is
+            # discarded. Without surfacing the errors here the submission failed
+            # silently and the page just reloaded looking unchanged.
+            for field, errors in form.errors.items():
+                label = form.fields[field].label or field.replace("_", " ").title()
+                for error in errors:
+                    messages.error(request, f"{label}: {error}")
     return redirect(reverse("dashboard_app:profile"))
 
 

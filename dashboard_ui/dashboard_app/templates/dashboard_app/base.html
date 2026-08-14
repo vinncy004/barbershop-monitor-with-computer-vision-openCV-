@@ -53,6 +53,11 @@
                 </div>
             </header>
             <section class="page-body">
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="alert {{ message.tags }}">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
                 {% block content %}{% endblock %}
             </section>
         </main>
