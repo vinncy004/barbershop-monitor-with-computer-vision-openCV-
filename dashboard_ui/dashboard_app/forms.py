@@ -1,11 +1,14 @@
 from django import forms
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 from .models import User, CCTVStream, InventoryItem, BusinessPerformanceEntry
+from .validators import validate_stream_url
 
 class SignUpForm(UserCreationForm):
     email = forms.EmailField(required=True)
     phone = forms.CharField(required=True, max_length=20)
-    rtsp_url = forms.URLField(required=False)
+    rtsp_url = forms.CharField(
+        required=False, max_length=500, validators=[validate_stream_url]
+    )
 
     class Meta:
         model = User

@@ -4,10 +4,14 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.utils import timezone
 
+from .validators import validate_stream_url
+
 
 class User(AbstractUser):
     phone = models.CharField(max_length=20, blank=True, null=True)
-    rtsp_url = models.URLField(blank=True, null=True)
+    rtsp_url = models.CharField(
+        max_length=500, blank=True, null=True, validators=[validate_stream_url]
+    )
 
     def __str__(self):
         return self.email or self.username
@@ -15,7 +19,7 @@ class User(AbstractUser):
 class CCTVStream(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="streams")
     name = models.CharField(max_length=100)
-    rtsp_url = models.URLField()
+    rtsp_url = models.CharField(max_length=500, validators=[validate_stream_url])
     active = models.BooleanField(default=True)
     last_checked = models.DateTimeField(blank=True, null=True)
     status = models.CharField(max_length=50, default="unknown")

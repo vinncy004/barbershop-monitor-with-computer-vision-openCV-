@@ -1,0 +1,41 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Local databases — the container uses the managed database from DATABASE_URL.
+*.sqlite3
+*.db
+
+# Computer vision assets and scripts: not part of the web service.
+*.pt
+App.js
+cloud_sync.py
+dashboard_sync.py
+dataannotation.py
+edge_deployment.py
+main.py
+memory_efficient_state.py
+mobile.py
+model_training.py
+multi_camera.py
+payment_intergration.py
+shavelog.py
+sync_shavelog_to_dashboard.py
+test.py
+
+# Build artefacts regenerated inside the image.
+dashboard_ui/staticfiles/
+
+Dockerfile*
+docker-compose.yml
+*.md
+.DS_Store

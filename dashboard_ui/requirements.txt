@@ -1,3 +1,10 @@
 Django>=4.2,<5.0
-mysqlclient>=2.2.8
-psycopg2-binary>=2.9  # optional if you want PostgreSQL support
+gunicorn>=22.0
+whitenoise>=6.6
+dj-database-url>=2.1
+numpy>=1.26
+
+# Database drivers. mysqlclient is used by the Railway MySQL plugin;
+# psycopg2-binary is kept so a Postgres DATABASE_URL also works.
+mysqlclient>=2.2.4
+psycopg2-binary>=2.9
